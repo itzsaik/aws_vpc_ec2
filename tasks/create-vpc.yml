@@ -1,0 +1,130 @@
+---
+# Create VPC - Virtual Private Cloud
+  - name: create VPC
+    ec2_vpc_net:
+        name: "{{ vpc_name }}"
+        cidr_block: "{{ vpc_cidr }}"
+        region: "{{ region }}"
+        state: present
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+    register: vpcoutput
+  - debug:
+        var: vpcoutput.vpc.id 
+
+  - name: Set VPC ID in variable
+    set_fact:
+        vpc_id: "{{ vpcoutput.vpc.id }}"
+  - debug:
+        var: vpc_id
+
+# ASSOCIATE SUBNET WITH VPC
+  - name: associate subnet to the VPC
+    ec2_vpc_subnet:
+        state: present
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ region }}"
+        cidr: "{{ subnet_cidr }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        map_public: yes
+        resource_tags:
+          Name: "{{ subnet_name }}"
+    register: subnetoutput
+  
+  - debug:
+        msg: "{{ subnetoutput }}" # not required. A variable name to debug.  Mutually exclusive with the 'msg' option.
+
+  - name: Set Subnet ID in variable
+    set_fact:
+        subnet_id: "{{ subnetoutput.subnet.id }}"
+  - debug:
+        var: subnet_id
+
+# CREATE IGW - INTERNET GATEWAY
+  - name: create IGW
+    ec2_vpc_igw:
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ region }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        state: "present"
+        tags:
+          Name: "{{ igw_name }}"
+    register: igw 
+  - debug:
+        var: igw # not required. A variable name to debug.  Mutually exclusive with the 'msg' option.
+
+# ROUTE - INTERNET GATEWAY
+  - name: route igw
+    ec2_vpc_route_table:
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ region }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        subnets:
+            "{{ subnet_id }}"
+        routes:
+        - dest: 0.0.0.0/0
+          gateway_id: "{{ igw.gateway_id }}"
+          
+        tags:
+          Name: "{{ route_name }}"
+    register: route
+  - debug:
+        var: route # not required. A variable name to debug.  Mutually exclusive with the 'msg' option.  
+    
+# update the CIDR address in the SSH port section.
+  - name: Create Security Group
+    ec2_group:
+        name: Web DMZ
+        description: DMZ Security Group
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ region }}"
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        rules:
+          - proto: tcp
+            ports:
+            - 80
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            ports:
+            - 22
+            cidr_ip: 0.0.0.0/0
+    register: security_group
+
+# CREATE EC2 SERVER
+  - name: Create EC2 server
+    ec2:
+        image: ami-0f2176987ee50226e
+        wait: yes
+        instance_type: t2.micro
+        region: "{{ region }}"
+        group_id: "{{ security_group.group_id }}"
+        vpc_subnet_id: "{{ subnet_id }}"
+        key_name: "{{ keypair_name  }}"
+        count_tag:
+          Name: apacheserver
+        exact_count: 2
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        instance_tags:
+          Name: "{{ ec2_tag }}"
+    register: ec2
+
+  - name: Wait for SSH to come up
+    wait_for: host="{{ item.public_dns_name }}" port=22 delay=60 timeout=600 state=started
+    with_items: "{{ ec2.instances }}"
+
+  - name: Displying the Hostnames
+    debug: msg="Hostnames {{ ec2['tagged_instances'][0]['dns_name'] }}"
+    with_items: "{{ ec2.instances }}"
+   
+  - name: set the fqdn and state as fact
+    set_fact:
+     fqdn: "{{ ec2['tagged_instances'][0]['dns_name'] }}"
+   
+  - debug:
+     var: ec2
+    

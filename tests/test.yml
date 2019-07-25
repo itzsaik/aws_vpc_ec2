@@ -1,0 +1,10 @@
+# Testing different operations
+#
+- hosts: localhost
+  connection: local
+  gather_facts: True
+  vars: 
+    operation: create-vpc
+
+  roles:
+    - itzsaik.aws_vpc_ec2
