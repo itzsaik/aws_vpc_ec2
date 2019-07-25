@@ -22,5 +22,5 @@ securitygroup_name: "Ansible Security Group"
 ec2_tag: "WebServer"
  
 #The local path to which we would save our EC2 Private Key
-ec2_key_directory: "/home/ansible/roles/aws-vpc/"
+ec2_key_directory: ""
 keypair_name: ""
